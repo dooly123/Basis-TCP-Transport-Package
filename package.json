@@ -1,0 +1,15 @@
+{
+  "name": "com.basis.transport.websocket",
+  "version": "1.0.0",
+  "displayName": "Basis WebSocket Transport",
+  "description": "WebSocket network transport for Basis. Web builds connect through it, and native clients can use it on networks that block UDP. Adds the 'websocket' network stack to the client and, through the Basis Server package manager, to the server.",
+  "author": {
+    "name": "BasisVR",
+    "url": "https://github.com/BasisVR"
+  },
+  "license": "MIT",
+  "vpmDependencies": {
+    "com.basis.server": "1.0.0",
+    "com.basis.transport.litenetlib": "1.0.0"
+  }
+}

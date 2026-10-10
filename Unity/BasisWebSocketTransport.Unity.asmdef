@@ -1,0 +1,16 @@
+{
+    "name": "BasisWebSocketTransport.Unity",
+    "rootNamespace": "",
+    "references": [
+        "BasisNetworkCore"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
