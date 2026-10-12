@@ -17,6 +17,7 @@ namespace Basis.Network.Core
         public const byte KindPong = 6;
         public const byte KindQuery = 7;
         public const byte KindQueryResponse = 8;
+        public const DeliveryMethod ControlMethod = (DeliveryMethod)0xFF;
         public const int MaxVarUIntBytes = 5;
         public const int DataHeaderBytes = 2;
         public const int ConnectHeaderBytes = 5;
