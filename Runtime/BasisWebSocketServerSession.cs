@@ -91,7 +91,7 @@ namespace Basis.Network.Core
                     if (!result.EndOfMessage) continue;
                     if (result.MessageType == WebSocketMessageType.Binary)
                     {
-                        MarkReceived();
+                        if (!SealProven) MarkReceived();
                         Manager.NoteReceived(count);
                         if (!HandleMessage(buffer, count)) break;
                     }
@@ -246,7 +246,20 @@ namespace Basis.Network.Core
                         _closeReason = DisconnectReason.InvalidProtocol;
                         return false;
                     }
-                    NetPacketReader reader = CopyToReader(buffer, bodyOffset + BasisWebSocketProtocol.DataHeaderBytes, bodyLength - BasisWebSocketProtocol.DataHeaderBytes, channel, (DeliveryMethod)method);
+                    int payloadOffset = bodyOffset + BasisWebSocketProtocol.DataHeaderBytes;
+                    int payloadLength = bodyLength - BasisWebSocketProtocol.DataHeaderBytes;
+                    BasisMessageCipher opener = Opener;
+                    if (opener != null)
+                    {
+                        if (!opener.TryOpen(0, channel, (DeliveryMethod)method, buffer, payloadOffset, payloadLength, out int plainLength)) return true;
+                        payloadLength = plainLength;
+                        NoteAuthenticated();
+                    }
+                    else if (AwaitingSeal)
+                    {
+                        return true;
+                    }
+                    NetPacketReader reader = CopyToReader(buffer, payloadOffset, payloadLength, channel, (DeliveryMethod)method);
                     Manager.NotePacketReceived();
                     try
                     {
@@ -258,12 +271,13 @@ namespace Basis.Network.Core
                     }
                     return true;
                 case BasisWebSocketProtocol.KindPing:
-                    HandlePing(buffer, bodyOffset, bodyLength);
+                    if (OpenControl(kind, buffer, bodyOffset, ref bodyLength)) HandlePing(buffer, bodyOffset, bodyLength);
                     return true;
                 case BasisWebSocketProtocol.KindPong:
-                    HandlePong(buffer, bodyOffset, bodyLength);
+                    if (OpenControl(kind, buffer, bodyOffset, ref bodyLength)) HandlePong(buffer, bodyOffset, bodyLength);
                     return true;
                 case BasisWebSocketProtocol.KindDisconnect:
+                    if (!OpenControl(kind, buffer, bodyOffset, ref bodyLength)) return true;
                     _remoteDisconnectData = new byte[bodyLength];
                     Buffer.BlockCopy(buffer, bodyOffset, _remoteDisconnectData, 0, bodyLength);
                     _closeReason = DisconnectReason.RemoteConnectionClose;
@@ -275,12 +289,32 @@ namespace Basis.Network.Core
             }
         }
 
-        internal BasisWebSocketPeer Accept()
+        private bool OpenControl(byte kind, byte[] buffer, int bodyOffset, ref int bodyLength)
+        {
+            BasisMessageCipher opener = Opener;
+            if (opener == null) return true;
+            if (opener.TryOpen(0, kind, BasisWebSocketProtocol.ControlMethod, buffer, bodyOffset, bodyLength, out int plainLength))
+            {
+                bodyLength = plainLength;
+                NoteAuthenticated();
+                return true;
+            }
+            return !SealProven;
+        }
+
+        private void NoteAuthenticated()
+        {
+            SealProven = true;
+            MarkReceived();
+        }
+
+        internal BasisWebSocketPeer Accept(bool awaitSeal = false)
         {
             if (State != SessionState.Pending || Interlocked.Exchange(ref _resolved, 1) != 0)
             {
                 return Peer;
             }
+            AwaitingSeal = awaitSeal;
             _peerId = Manager.AllocatePeerId();
             RemoteId = _peerId;
             Peer = new BasisWebSocketPeer(this, _peerId);
@@ -494,6 +528,12 @@ namespace Basis.Network.Core
         public NetPeer Accept()
         {
             return _session.Accept();
+        }
+
+        public NetPeer AcceptAwaitingSeal()
+        {
+            BasisWebSocketPeer peer = _session.Accept(true);
+            return peer != null && _session.AwaitingSeal ? peer : null;
         }
 
         public void Reject(NetDataWriter w)

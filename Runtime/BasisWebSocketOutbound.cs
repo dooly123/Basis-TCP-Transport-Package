@@ -33,6 +33,7 @@ namespace Basis.Network.Core
         private bool _closeIssued;
         private long _dropped;
         private long _priorityDropped;
+        private BasisMessageCipher _sealer;
 
         public BasisWebSocketOutbound(int maxBulkBytes, int maxPriorityBytes, int maxPendingBytes)
         {
@@ -70,15 +71,26 @@ namespace Basis.Network.Core
             return Volatile.Read(ref _queued[channel]);
         }
 
+        public bool IsSealing => Volatile.Read(ref _sealer) != null;
+
+        public void SetSealer(BasisMessageCipher sealer)
+        {
+            lock (_gate)
+            {
+                _sealer = sealer;
+            }
+        }
+
         public AppendResult AppendData(byte channel, DeliveryMethod method, byte[] data, int offset, int length, int patchOffset = -1, byte patchValue = 0)
         {
             if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
-            int bodyLength = BasisWebSocketProtocol.DataHeaderBytes + length;
-            int frameSize = BasisWebSocketProtocol.FrameSize(bodyLength);
             bool droppable = BasisWebSocketProtocol.IsDroppable(method);
             bool priority = droppable && PriorityChannels[channel];
             lock (_gate)
             {
+                BasisMessageCipher sealer = _sealer;
+                int bodyLength = BasisWebSocketProtocol.DataHeaderBytes + length + (sealer == null ? 0 : BasisMessageCipher.Overhead);
+                int frameSize = BasisWebSocketProtocol.FrameSize(bodyLength);
                 if (_closed) return AppendResult.Closed;
                 if (droppable)
                 {
@@ -111,6 +123,7 @@ namespace Basis.Network.Core
                         _pending[cursor + patchOffset] = patchValue;
                     }
                 }
+                sealer?.Seal(0, channel, method, _pending, cursor, length);
                 _length += frameSize;
                 if (droppable)
                 {
@@ -124,20 +137,23 @@ namespace Basis.Network.Core
 
         public AppendResult AppendControl(byte kind, byte[] body, int offset, int length)
         {
-            int frameSize = BasisWebSocketProtocol.FrameSize(length);
             lock (_gate)
             {
+                BasisMessageCipher sealer = _sealer;
+                int bodyLength = length + (sealer == null ? 0 : BasisMessageCipher.Overhead);
+                int frameSize = BasisWebSocketProtocol.FrameSize(bodyLength);
                 if (_closed) return AppendResult.Closed;
                 if (_length + frameSize > _maxPendingBytes && kind != BasisWebSocketProtocol.KindDisconnect && kind != BasisWebSocketProtocol.KindReject)
                 {
                     return AppendResult.Overflow;
                 }
                 EnsureCapacity(_length + frameSize);
-                int cursor = _length + BasisWebSocketProtocol.WriteFrameHeader(_pending, _length, kind, length);
+                int cursor = _length + BasisWebSocketProtocol.WriteFrameHeader(_pending, _length, kind, bodyLength);
                 if (length > 0)
                 {
                     Buffer.BlockCopy(body, offset, _pending, cursor, length);
                 }
+                sealer?.Seal(0, kind, BasisWebSocketProtocol.ControlMethod, _pending, cursor, length);
                 _length += frameSize;
                 return StartFlushIfIdle();
             }

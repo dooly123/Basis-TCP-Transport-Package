@@ -33,7 +33,7 @@ namespace Basis.Network.Core
 
         public long RemoteTimeDelta => _link.RemoteTimeDelta;
 
-        public int Mtu => _link.Mtu;
+        public int Mtu => _link.Outbound.IsSealing ? _link.Mtu - BasisMessageCipher.Overhead : _link.Mtu;
 
         public object Tag { get; set; }
 
@@ -42,6 +42,18 @@ namespace Basis.Network.Core
         public bool SupportsDirectConnect => false;
 
         public bool IsConnected => _link.IsConnected;
+
+        public bool SealOutbound(byte[] key)
+        {
+            _link.Outbound.SetSealer(new BasisMessageCipher(key));
+            return true;
+        }
+
+        public bool RequireSealedInbound(byte[] key)
+        {
+            _link.Opener = new BasisMessageCipher(key);
+            return true;
+        }
 
         public void Disconnect()
         {
@@ -95,6 +107,8 @@ namespace Basis.Network.Core
         internal readonly int Mtu;
         internal IPEndPoint RemoteEndPoint;
         internal int RemoteId = -1;
+        internal volatile BasisMessageCipher Opener;
+        internal volatile bool AwaitingSeal, SealProven;
         private long _lastReceive;
         private long _lastPingSent;
         private int _roundTripMs;
