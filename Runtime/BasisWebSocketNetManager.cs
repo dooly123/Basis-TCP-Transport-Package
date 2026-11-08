@@ -24,6 +24,29 @@ namespace Basis.Network.Core
         private readonly EventBasedNetListener _listener;
         private readonly BasisWebSocketTransportConfig _config;
         private readonly ConcurrentDictionary<BasisWebSocketServerSession, byte> _sessions = new ConcurrentDictionary<BasisWebSocketServerSession, byte>();
+        private readonly Dictionary<IPAddress, int> _sessionsPerAddress = new Dictionary<IPAddress, int>();
+        private bool TryCountAddress(IPAddress address)
+        {
+            int max = _config.MaxSessionsPerAddress;
+            if (max <= 0 || address == null || IPAddress.IsLoopback(address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address)) return true;
+            lock (_sessionsPerAddress)
+            {
+                _sessionsPerAddress.TryGetValue(address, out int open);
+                if (open >= max) return false;
+                _sessionsPerAddress[address] = open + 1;
+                return true;
+            }
+        }
+        private void UncountAddress(IPAddress address)
+        {
+            if (address == null) return;
+            lock (_sessionsPerAddress)
+            {
+                if (!_sessionsPerAddress.TryGetValue(address, out int open)) return;
+                if (open <= 1) _sessionsPerAddress.Remove(address);
+                else _sessionsPerAddress[address] = open - 1;
+            }
+        }
         private readonly ConcurrentDictionary<IPEndPoint, BasisWebSocketServerSession> _queries = new ConcurrentDictionary<IPEndPoint, BasisWebSocketServerSession>();
         private readonly List<BasisWebSocketClientConnection> _clients = new List<BasisWebSocketClientConnection>();
         private readonly List<TcpListener> _tcpListeners = new List<TcpListener>();
@@ -322,6 +345,7 @@ namespace Basis.Network.Core
         private async Task HandleSocketAsync(Socket socket, CancellationToken lifetime)
         {
             bool handshakeCounted = true;
+            IPAddress countedAddress = null;
             Stream stream = null;
             BasisWebSocketServerSession session = null;
             WebSocket webSocket = null;
@@ -371,11 +395,20 @@ namespace Basis.Network.Core
                             stream.Dispose();
                             return;
                         }
+                        IPAddress client = BasisWebSocketHandshake.ResolveClientAddress(immediate.Address, request, _proxies);
+                        if (!TryCountAddress(client))
+                        {
+                            byte[] busy = BasisWebSocketHandshake.BuildPlainResponse(429, "Too Many Requests", "Too many connections from this address.");
+                            await stream.WriteAsync(busy, 0, busy.Length, handshake.Token).ConfigureAwait(false);
+                            await stream.FlushAsync(handshake.Token).ConfigureAwait(false);
+                            stream.Dispose();
+                            return;
+                        }
+                        countedAddress = client;
                         string protocol = request.OffersProtocol(BasisWebSocketProtocol.SubProtocol) ? BasisWebSocketProtocol.SubProtocol : null;
                         byte[] response = BasisWebSocketHandshake.BuildSwitchingProtocols(BasisWebSocketHandshake.ComputeAccept(request.Header("Sec-WebSocket-Key")), protocol);
                         await stream.WriteAsync(response, 0, response.Length, handshake.Token).ConfigureAwait(false);
                         await stream.FlushAsync(handshake.Token).ConfigureAwait(false);
-                        IPAddress client = BasisWebSocketHandshake.ResolveClientAddress(immediate.Address, request, _proxies);
                         session = new BasisWebSocketServerSession(this, _config, stream, new IPEndPoint(client, immediate.Port));
                         webSocket = WebSocket.CreateFromStream(stream, true, protocol, TimeSpan.Zero);
                     }
@@ -419,6 +452,7 @@ namespace Basis.Network.Core
                 {
                     Interlocked.Decrement(ref _pendingHandshakes);
                 }
+                UncountAddress(countedAddress);
             }
         }
 

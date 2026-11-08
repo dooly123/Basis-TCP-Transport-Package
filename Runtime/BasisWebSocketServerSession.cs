@@ -64,13 +64,14 @@ namespace Basis.Network.Core
                 {
                     if (count == buffer.Length)
                     {
-                        if (buffer.Length >= _config.MaxMessageBytes)
+                        int limit = IsAccepted && (!AwaitingSeal || SealProven) ? _config.MaxMessageBytes : Math.Min(_config.MaxMessageBytes, Math.Max(16 * 1024, _config.MaxPreLoginMessageBytes));
+                        if (buffer.Length >= limit)
                         {
-                            BNL.LogWarning($"[WebSocket] {RemoteEndPoint} sent a message over {_config.MaxMessageBytes} bytes; closing.");
+                            BNLThrottle.LogWarning("websocket.tooLarge", $"[WebSocket] {RemoteEndPoint} sent a message over {limit} bytes; closing.");
                             _closeReason = DisconnectReason.InvalidProtocol;
                             break;
                         }
-                        Array.Resize(ref buffer, Math.Min(_config.MaxMessageBytes, buffer.Length * 2));
+                        Array.Resize(ref buffer, Math.Min(limit, buffer.Length * 2));
                     }
                     ValueWebSocketReceiveResult result = await _socket.ReceiveAsync(new Memory<byte>(buffer, count, buffer.Length - count), _cts.Token).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)

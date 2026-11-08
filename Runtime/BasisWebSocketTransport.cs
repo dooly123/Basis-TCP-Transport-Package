@@ -12,6 +12,17 @@ namespace Basis.Network.Core
             Register();
         }
 
+        private static void RegisterProtectionSettings()
+        {
+            void Add(string field, double min, double max) => BasisProtectionSettings.RegisterField(() => BasisTransportConfigStore.Get<BasisWebSocketTransportConfig>(StackId), typeof(BasisWebSocketTransportConfig), field, DisplayName, min, max);
+            Add(nameof(BasisWebSocketTransportConfig.MaxSessionsPerAddress), 0, 100000);
+            Add(nameof(BasisWebSocketTransportConfig.MaxPendingHandshakes), 1, 1000000);
+            Add(nameof(BasisWebSocketTransportConfig.MaxPreLoginMessageBytes), 16 * 1024, 64 * 1024 * 1024);
+            Add(nameof(BasisWebSocketTransportConfig.MaxMessageBytes), 16 * 1024, 1024 * 1024 * 1024);
+            Add(nameof(BasisWebSocketTransportConfig.MaxPendingBytesPerPeer), 64 * 1024, int.MaxValue);
+            Add(nameof(BasisWebSocketTransportConfig.HandshakeTimeoutMs), 1000, 600000);
+        }
+
         public static void Register()
         {
             BasisNetworkStackRegistry.Register(StackId, DisplayName, (listener, configuration) => new BasisWebSocketNetManager(listener, configuration));
@@ -38,11 +49,14 @@ namespace Basis.Network.Core
                 new BasisConfigXmlDocs.FieldDoc("DisconnectTimeout", " Time with nothing received from a peer before it is disconnected. int (ms). "),
                 new BasisConfigXmlDocs.FieldDoc("ConnectTimeoutMs", " Client side only: how long to wait for the server to accept a connection. int (ms). "),
                 new BasisConfigXmlDocs.FieldDoc("MaxMessageBytes", " Largest single WebSocket message accepted from a peer; a peer sending more is disconnected. int (bytes). ", " ===== Limits ===== "),
+                new BasisConfigXmlDocs.FieldDoc("MaxPreLoginMessageBytes", " Largest single WebSocket message accepted from a connection that has not finished logging in. Keeps unauthenticated connections from making the server hold large buffers. int (bytes); default 65536. "),
+                new BasisConfigXmlDocs.FieldDoc("MaxSessionsPerAddress", " WebSocket connections one client address may have open at once, logged in or not. Addresses behind a trusted proxy are counted by the forwarded client address; loopback is not counted. int; default 32; 0 or negative removes the limit. "),
                 new BasisConfigXmlDocs.FieldDoc("MaxPendingBytesPerPeer", " Reliable data allowed to queue for one peer before it is judged unable to keep up and disconnected. int (bytes). "),
                 new BasisConfigXmlDocs.FieldDoc("MaxUnreliableBytesPerPeer", " Queued position and other unreliable data allowed per peer; past this, new updates for that peer are dropped, since a newer one replaces them anyway. Counted in droppedUnreliable on /health. int (bytes). "),
                 new BasisConfigXmlDocs.FieldDoc("MaxVoiceBytesPerPeer", " Queued voice allowed per peer, separate from the budget above so a backlog of position updates cannot shed voice. Counted in droppedVoice on /health. int (bytes). "),
                 new BasisConfigXmlDocs.FieldDoc("SocketSendBufferBytes", " Kernel send buffer per connection. Smaller keeps queued data in the server, where it can be shed, instead of in the kernel, where it only adds latency. int (bytes); 0 = OS default. "),
                 new BasisConfigXmlDocs.FieldDoc("VirtualMtu", " Payload size the server assumes for a WebSocket peer when it packs avatar updates, the same role the UDP MTU plays for LiteNetLib peers. int (bytes); the default matches the largest UDP MTU. "));
+            RegisterProtectionSettings();
         }
     }
 }
