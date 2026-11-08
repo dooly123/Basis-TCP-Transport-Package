@@ -23,6 +23,8 @@ namespace Basis.Network.Core
         int IBasisTransportTimeouts.DisconnectTimeoutMs => DisconnectTimeout;
         public int ConnectTimeoutMs = 15000;
         public int MaxMessageBytes = 16 * 1024 * 1024;
+        public int MaxPreLoginMessageBytes = 64 * 1024;
+        public int MaxSessionsPerAddress = 32;
         public int MaxPendingBytesPerPeer = 32 * 1024 * 1024;
         public int MaxUnreliableBytesPerPeer = 512 * 1024;
         public int MaxVoiceBytesPerPeer = 512 * 1024;
